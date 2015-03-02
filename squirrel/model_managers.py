@@ -4,18 +4,46 @@ from django.db import models
 from django.db.models.query import QuerySet
 from . import model_cache
 from . import signals
+from django.utils.functional import cached_property
 
 
 class CachingQuerySet(QuerySet):
     """
     Query set that can handle caching.
     """
+    # Global field caches for generating cache keys
+    _primary_fields_cache = {}
+    _unique_fields_cache = {}
+
     def iterator(self):
         super_iterator = super(CachingQuerySet, self).iterator()
         while True:
-            obj = super_iterator.next()
+            obj = next(super_iterator)
             model_cache.set(obj)
             yield obj
+
+    @cached_property
+    def model_primary_fields(self):
+        if self.model not in self._primary_fields_cache:
+            if hasattr(self.model, 'cache_primary_attr'):
+                attname = self.model.cache_primary_attr
+                filters = (attname, '%s__exact' % attname)
+            else:
+                attname = self.model._meta.pk.attname
+                filters = ('pk', 'pk__exact', attname, '%s__exact' % attname)
+            self._primary_fields_cache[self.model] = filters
+        return self._primary_fields_cache[self.model]
+
+    @cached_property
+    def model_unique_fields(self):
+        if self.model not in self._unique_fields_cache:
+            filters = []
+            for field in self.model._meta.fields:
+                if field.unique:
+                    filters.append(field.attname)
+                    filters.append('%s__exact' % field.attname)
+            self._unique_fields_cache[self.model] = tuple(filters)
+        return self._unique_fields_cache[self.model]
 
     def get(self, **kwargs):
         """
@@ -30,18 +58,15 @@ class CachingQuerySet(QuerySet):
         # super. There will be a where clause if this QuerySet has already
         # been filtered/cloned.
         if not self.query.where and len(kwargs) == 1:
-            k, v = kwargs.items()[0]
-            opts = self.model._meta
-            pk_attname = opts.pk.attname
-            if k in ('pk', 'pk__exact', pk_attname, '%s__exact' % pk_attname):
-                obj = model_cache.get(self.model, v)
+            key, value = kwargs.popitem()
+            if key in self.model_primary_fields:
+                obj = model_cache.get(self.model, value)
                 if obj is not None:
                     obj.from_cache = True
                     return obj
 
-            unique_fields = [f.attname for f in opts.fields if f.unique]
-            if k in unique_fields:
-                obj = model_cache.get_by_attribute(self.model, kwargs.values()[0])
+            if key in self.model_unique_fields:
+                obj = model_cache.get_by_attribute(self.model, value)
                 if obj is not None:
                     obj.from_cache = True
                     return obj
