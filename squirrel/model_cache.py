@@ -16,7 +16,7 @@ def generate_named_key(instance_or_type, name, **vary_by):
     if vary_string:
         return 'model:%s.%s:%s[%s]' % (opts.app_label, opts.module_name, name, vary_string)
     else:
-        return 'model:%s.%s:%s' % (opts.app_label, opts.module_name, name)
+        return 'model:%s.%s:%s' % (opts.app_label, opts.model_name, name)
 
 
 def generate_obj_key(instance_or_type, **vary_by):
@@ -30,7 +30,7 @@ def generate_obj_key(instance_or_type, **vary_by):
     """
     opts = instance_or_type._meta
     vary_string = ','.join('%s=%s' % (k, vary_by[k]) for k in sorted(vary_by))
-    return 'model:%s.%s[%s]' % (opts.app_label, opts.module_name, vary_string)
+    return 'model:%s.%s[%s]' % (opts.app_label, opts.model_name, vary_string)
 
 
 def generate_instance_key(instance, attr_name='pk'):

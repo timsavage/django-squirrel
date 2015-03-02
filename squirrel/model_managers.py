@@ -4,6 +4,7 @@ from django.db import models
 from django.db.models.query import QuerySet
 from . import model_cache
 from . import signals
+from django.utils.functional import cached_property
 
 
 class CachingQuerySet(QuerySet):
@@ -16,6 +17,14 @@ class CachingQuerySet(QuerySet):
             obj = super_iterator.next()
             model_cache.set(obj)
             yield obj
+
+    @cached_property
+    def primary_key_attname(self):
+        return self.model._meta.pk.attname
+
+    @cached_property
+    def model_unique_fields(self):
+        return [f.attname for f in self.model._meta.fields if f.unique]
 
     def get(self, **kwargs):
         """
@@ -30,18 +39,16 @@ class CachingQuerySet(QuerySet):
         # super. There will be a where clause if this QuerySet has already
         # been filtered/cloned.
         if not self.query.where and len(kwargs) == 1:
-            k, v = kwargs.items()[0]
-            opts = self.model._meta
-            pk_attname = opts.pk.attname
-            if k in ('pk', 'pk__exact', pk_attname, '%s__exact' % pk_attname):
-                obj = model_cache.get(self.model, v)
+            key, value = kwargs.popitem()
+            pk_attname = self.primary_key_attname
+            if key in ('pk', 'pk__exact', pk_attname, '%s__exact' % pk_attname):
+                obj = model_cache.get(self.model, value)
                 if obj is not None:
                     obj.from_cache = True
                     return obj
 
-            unique_fields = [f.attname for f in opts.fields if f.unique]
-            if k in unique_fields:
-                obj = model_cache.get_by_attribute(self.model, kwargs.values()[0])
+            if key in self.model_unique_fields:
+                obj = model_cache.get_by_attribute(self.model, value)
                 if obj is not None:
                     obj.from_cache = True
                     return obj
