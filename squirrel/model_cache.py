@@ -33,7 +33,7 @@ def generate_obj_key(instance_or_type, **vary_by):
     return 'model:%s.%s[%s]' % (opts.app_label, opts.model_name, vary_string)
 
 
-def generate_instance_key(instance, attr_name='pk'):
+def generate_instance_key(instance, attr_name=None):
     """
     Generate a cache key for a model instance or type.
 
@@ -43,7 +43,10 @@ def generate_instance_key(instance, attr_name='pk'):
     :return: String key for use in cache.
 
     """
-    attr_name = attr_name if isinstance(attr_name, (tuple, list)) else [attr_name]
+    if attr_name is None:
+        attr_name = [instance.cache_primary_attr if hasattr(instance, 'cache_primary_attr') else 'pk']
+    else:
+        attr_name = attr_name if isinstance(attr_name, (tuple, list)) else [attr_name]
     vary_by = {n: getattr(instance, n) for n in attr_name}
     return generate_obj_key(instance, **vary_by)
 

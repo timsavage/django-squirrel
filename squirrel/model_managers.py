@@ -11,20 +11,39 @@ class CachingQuerySet(QuerySet):
     """
     Query set that can handle caching.
     """
+    # Global field caches for generating cache keys
+    _primary_fields_cache = {}
+    _unique_fields_cache = {}
+
     def iterator(self):
         super_iterator = super(CachingQuerySet, self).iterator()
         while True:
-            obj = super_iterator.next()
+            obj = next(super_iterator)
             model_cache.set(obj)
             yield obj
 
     @cached_property
-    def primary_key_attname(self):
-        return self.model._meta.pk.attname
+    def model_primary_fields(self):
+        if self.model not in self._primary_fields_cache:
+            if hasattr(self.model, 'cache_primary_attr'):
+                attname = self.model.cache_primary_attr
+                filters = (attname, '%s__exact' % attname)
+            else:
+                attname = self.model._meta.pk.attname
+                filters = ('pk', 'pk__exact', attname, '%s__exact' % attname)
+            self._primary_fields_cache[self.model] = filters
+        return self._primary_fields_cache[self.model]
 
     @cached_property
     def model_unique_fields(self):
-        return [f.attname for f in self.model._meta.fields if f.unique]
+        if self.model not in self._unique_fields_cache:
+            filters = []
+            for field in self.model._meta.fields:
+                if field.unique:
+                    filters.append(field.attname)
+                    filters.append('%s__exact' % field.attname)
+            self._unique_fields_cache[self.model] = tuple(filters)
+        return self._unique_fields_cache[self.model]
 
     def get(self, **kwargs):
         """
@@ -40,8 +59,7 @@ class CachingQuerySet(QuerySet):
         # been filtered/cloned.
         if not self.query.where and len(kwargs) == 1:
             key, value = kwargs.popitem()
-            pk_attname = self.primary_key_attname
-            if key in ('pk', 'pk__exact', pk_attname, '%s__exact' % pk_attname):
+            if key in self.model_primary_fields:
                 obj = model_cache.get(self.model, value)
                 if obj is not None:
                     obj.from_cache = True
